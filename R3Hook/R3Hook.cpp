@@ -172,8 +172,8 @@ void unloadHook()
 
 int main(int argc, char* argv[])
 {
-	installHook();
-	//unloadHook();
+	//installHook();
+	unloadHook();
 	return 0;
 }
 
