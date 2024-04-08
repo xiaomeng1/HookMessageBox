@@ -19,42 +19,24 @@ TCHAR szNewText[] = L"InlineHook";
 
 HANDLE g_hDriver; //驱动句柄
 
-
+char hookShellCode[25] = {
+	0x60, 													//pushad
+	0x9C, 													//pushfd
+	0x36, 0xC7, 0x44, 0x24, 0x2C, 0x00, 0x00, 0x00, 0x00,   //mov         dword ptr ss:[esp+2Ch],0
+	0x9D,                   								//popfd  
+	0x61,													//popad
+	0x8B, 0xFF,                								//mov         edi,edi  index 13
+	0x55,													//push        ebp
+	0x8B,0xEC ,               								//mov         ebp,esp
+	0xB8 ,0,0,0,0,											//mov eax, retaddress  index 19
+	0xFF,0xE0												//jmp eax
+};
 /*************************************************/
 //打开驱动服务句柄
 //3环链接名称： \\\\.\\AABB
 /*************************************************/
 
-void  __declspec(naked) NewMessageBox() {
-
-	__asm {
-
-		// 1 保存寄存器
-		pushad
-		pushfd
-
-		int 3;
-
-		// 2 修改数据： esp+8 
-		LEA EAX, DWORD PTR DS : [szNewText]
-		MOV DWORD PTR SS : [esp + 0x24 + 8] , EAX
-
-		// 3 恢复寄存器
-		popfd
-		popad
-
-		// 4 执行覆盖的代码
-		MOV EDI, EDI
-		PUSH EBP
-		MOV EBP, ESP
-
-		// 5 返回执行
-		jmp dwRetAddress
-	}
-
-}
-
-BOOL HookMessageBox(BOOL bOpen) {
+BOOL HookMessageBox(BOOL bOpen,DWORD shellCodeAddr) {
 
 	BOOL bRet = FALSE;
 	BYTE byJmpCode[PATCH_LENGTH] = { 0xE9 };
@@ -67,35 +49,13 @@ BOOL HookMessageBox(BOOL bOpen) {
 	memset(&byJmpCode[1], 0x90, PATCH_LENGTH - 1);
 
 	//2 存储跳转地址
-	*(DWORD*)&byJmpCode[1] = (DWORD)NewMessageBox - (DWORD)dwHookAddress - 5;
+	*(DWORD*)&byJmpCode[1] = (DWORD)shellCodeAddr - (DWORD)dwHookAddress - 5;
 
 	//3 备份被覆盖的Code
 	memcpy(byOriginalCode, (LPVOID)dwHookAddress, PATCH_LENGTH);
 
 	// 4 开始 patch
-	if (bOpen) {
-		if (!bHookFlag) {
-			VirtualProtect((LPVOID)dwHookAddress, PATCH_LENGTH, PAGE_EXECUTE_READWRITE, &dwOldProtect);
-			memcpy((LPVOID)dwHookAddress, byJmpCode, PATCH_LENGTH);
-			VirtualProtect((LPVOID)dwHookAddress, PATCH_LENGTH, dwOldProtect, 0);
-			bHookFlag = TRUE;
-			bRet = TRUE;
-		}
-
-	}
-	else {
-
-		if (bHookFlag) {
-
-			VirtualProtect((LPVOID)dwHookAddress, PATCH_LENGTH, PAGE_EXECUTE_READWRITE, &dwOldProtect);
-			memcpy((LPVOID)dwHookAddress, byOriginalCode, PATCH_LENGTH);
-			VirtualProtect((LPVOID)dwHookAddress, PATCH_LENGTH, dwOldProtect, 0);
-			bHookFlag = FALSE;
-			bRet = TRUE;
-		}
-
-	}
-
+	memcpy((LPVOID)dwHookAddress, byJmpCode, PATCH_LENGTH);
 	return bRet;
 }
 
@@ -109,7 +69,6 @@ BOOL Open(PWCHAR pLinkName) {
 
 
 	if (g_hDriver != INVALID_HANDLE_VALUE) {
-
 		return TRUE;
 	}
 	else {
@@ -130,12 +89,10 @@ BOOL IoControl(DWORD dwIoCode, PVOID InBuff, DWORD InBuffLen, PVOID OutBuff, DWO
 
 }
 
-int main(int argc, char* argv[])
+void installHook()
 {
-
-	////////////////////////////////////MessageBox and ProcessId//////////////////////////////
-	int* Inbuff = (int*)malloc(12);
-	ZeroMemory(Inbuff, 12);
+	int* Inbuff = (int*)malloc(16);
+	ZeroMemory(Inbuff, 16);
 
 	//获取要 Hook 的函数地址 
 	dwHookAddress = (DWORD)GetProcAddress(LoadLibrary(L"user32.dll"), "MessageBoxW");
@@ -145,34 +102,78 @@ int main(int argc, char* argv[])
 	DWORD value = *(PULONG)dwHookAddress;
 	*(Inbuff + 1) = currentProcessID;
 
+
 	printf("MessageBoxW address %08X\n", dwHookAddress);
-	system("pause");
 	TCHAR szOutBuffer[OUT_BUFFER_MAXLENGTH] = { 0 };
 
 	//1 通过符号连接 打开设备
 	Open((PWCHAR)SYMBOLICLINK_NAME);
 
 
+	//copy shell code 到user32 中空闲点
+	DWORD shellAddress = dwHookAddress + 0x137C0;
+	//访问下触发页异常
+	value = *(PULONG)shellAddress;
+	*(Inbuff + 2) = shellAddress;
 
 	//2 测试通信
 //	IoControl(OPER2,&dwInBuffer,IN_BUFFER_MAXLENGTH,szOutBuffer,OUT_BUFFER_MAXLENGTH);
 	IoControl(OPER2, &Inbuff, IN_BUFFER_MAXLENGTH, szOutBuffer, OUT_BUFFER_MAXLENGTH);
 
-
-	/////////////////////HOOK//////////////////
 	//获取要 HOOK的函数地址
 	dwRetAddress = dwHookAddress + PATCH_LENGTH;
+	*(PDWORD)&hookShellCode[19] = dwRetAddress;
+
+	//copy shell 
+	memcpy((PVOID)shellAddress, hookShellCode, sizeof(hookShellCode));
+
 	//安装或者卸载HOOK
-	HookMessageBox(TRUE);
+	HookMessageBox(TRUE, shellAddress);
 
-	MessageBox(0, 0, 0, 0);
-
-	/////////////////////HOOK//////////////////
-
-//	printf("%s",szOutBuffer);
+	//test 
+	MessageBox(0, L"111", L"222", 0);
 
 	//3 关闭设备
 	CloseHandle(g_hDriver);
+}
+
+void unloadHook()
+{
+	int* Inbuff = (int*)malloc(16);
+	ZeroMemory(Inbuff, 16);
+
+	//获取要 Hook 的函数地址 
+	dwHookAddress = (DWORD)GetProcAddress(LoadLibrary(L"user32.dll"), "MessageBoxW");
+	//获取进程 ID
+	DWORD currentProcessID = GetCurrentProcessId();
+	*Inbuff = dwHookAddress;
+	DWORD value = *(PULONG)dwHookAddress;
+	*(Inbuff + 1) = currentProcessID;
+
+
+	printf("MessageBoxW address %08X\n", dwHookAddress);
+	TCHAR szOutBuffer[OUT_BUFFER_MAXLENGTH] = { 0 };
+
+	//1 通过符号连接 打开设备
+	Open((PWCHAR)SYMBOLICLINK_NAME);
+
+
+	//copy shell code 到user32 中空闲点
+	DWORD shellAddress = dwHookAddress + 0x137C0;
+	//访问下触发页异常
+	value = *(PULONG)shellAddress;
+	*(Inbuff + 2) = shellAddress;
+
+	IoControl(OPER2, &Inbuff, IN_BUFFER_MAXLENGTH, szOutBuffer, OUT_BUFFER_MAXLENGTH);
+	memcpy((PVOID)dwHookAddress, &hookShellCode[13], 5);
+	//3 关闭设备
+	CloseHandle(g_hDriver);
+}
+
+int main(int argc, char* argv[])
+{
+	installHook();
+	//unloadHook();
 	return 0;
 }
 

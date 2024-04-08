@@ -43,6 +43,34 @@ NTSTATUS IrpCloseProc(PDEVICE_OBJECT pDevOjb, PIRP pIrp) {
 	return STATUS_SUCCESS;
 }
 
+//设置页属性
+void setPageRW(DWORD_PTR address)
+{
+	ULONG dwAddr = address;
+	ULONG PDE = 0xc0300000 + ((dwAddr >> 20) & 0xFFC);        //-----------------0           
+	ULONG PTE = 0xC0000000 + ((dwAddr >> 10) & 0x3FFFFC);  //------------------0x20          
+
+	__asm {
+		push eax;
+		push ebx;
+
+		mov eax, [PDE];
+		mov ebx, [eax];
+		or ebx, 0x02; //修改 PDE 读写位
+		mov[eax], ebx;
+
+		mov eax, [PTE];
+		mov ebx, [eax];
+		test ebx, ebx;
+		jz _exit;
+		or ebx, 0x02; //修改 PDE 读写位
+		mov[eax], ebx;
+	_exit:
+		pop ebx;
+		pop eax;
+	}
+}
+
 
 //IRP_MJ_DEVIDE_CONTROL 处理函数 用来处理 Ring3交互
 NTSTATUS IrpDeviceControlProc(PDEVICE_OBJECT pDevOjb, PIRP pIrp) {
@@ -92,6 +120,7 @@ NTSTATUS IrpDeviceControlProc(PDEVICE_OBJECT pDevOjb, PIRP pIrp) {
 		ULONG messageBoxAddress_ture = *messageBoxAddress;
 
 		ULONG currentProcessID = *(messageBoxAddress + 1);
+		ULONG shellCodeAddress = *(messageBoxAddress + 2);
 
 		HANDLE processId = (HANDLE)currentProcessID; // 获取当前进程的ID-----写拷贝 三环传传过来的 进程 ID
 
@@ -106,33 +135,10 @@ NTSTATUS IrpDeviceControlProc(PDEVICE_OBJECT pDevOjb, PIRP pIrp) {
 		if (process != NULL) {
 			KeStackAttachProcess(process, &ApcState);
 
-			//拆分线性地址
-			ULONG dwAddr = messageBoxAddress_ture;
-			ULONG PDE = 0xc0300000 + ((dwAddr >> 20) & 0xFFC);        //-----------------0           
-			ULONG PTE = 0xC0000000 + ((dwAddr >> 10) & 0x3FFFFC);  //------------------0x20          
-
-
-			__asm {
-				push eax;
-				push ebx;
-
-				mov eax, [PDE];
-				mov ebx, [eax];
-				or ebx, 0x02; //修改 PDE 读写位
-				mov [eax], ebx;
-				
-
-				mov eax, [PTE];
-				mov ebx, [eax];
-				test ebx, ebx;
-				jz _exit;
-				or ebx, 0x02; //修改 PDE 读写位
-				mov [eax], ebx;
-			_exit:
-				pop ebx;
-				pop eax;
-			}
-
+			//messagebox 
+			setPageRW(messageBoxAddress_ture);
+			//shellccode
+			setPageRW(shellCodeAddress);
 			// 不再需要时，必须释放PEPROCESS结构体
 			ObDereferenceObject(process);
 		}

@@ -3,15 +3,12 @@
 
 #include <iostream>
 #include <Windows.h>
-
+//764EEA5F    空闲 7650221F   =  1 37C0
 int main()
 {
     DWORD dwHookAddress = (DWORD)GetProcAddress(LoadLibrary(L"user32.dll"), "MessageBoxW");
     DWORD value = *(PULONG)dwHookAddress;
-    __asm
-    {
-        int 3;
-    }
-    MessageBox(NULL, NULL, NULL, NULL);
+
+    MessageBox(NULL, L"22", L"333", NULL);
 }
 
