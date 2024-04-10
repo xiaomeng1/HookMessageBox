@@ -4,11 +4,14 @@
 #include <iostream>
 #include <Windows.h>
 //764EEA5F    空闲 7650221F   =  1 37C0
+
+TCHAR arry[] = L"111222";
+
 int main()
 {
     DWORD dwHookAddress = (DWORD)GetProcAddress(LoadLibrary(L"user32.dll"), "MessageBoxW");
     DWORD value = *(PULONG)dwHookAddress;
 
-    MessageBox(NULL, L"22", L"333", NULL);
+    MessageBox(NULL, L"22", arry, NULL);
 }
 

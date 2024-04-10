@@ -22,7 +22,7 @@ HANDLE g_hDriver; //驱动句柄
 char hookShellCode[25] = {
 	0x60, 													//pushad
 	0x9C, 													//pushfd
-	0x36, 0xC7, 0x44, 0x24, 0x2C, 0x00, 0x00, 0x00, 0x00,   //mov         dword ptr ss:[esp+2Ch],0
+	0x36, 0xC7, 0x44, 0x24, 0x2C, 0x00, 0x00, 0x00, 0x00,   //mov         dword ptr ss:[esp+2Ch],0  index 7
 	0x9D,                   								//popfd  
 	0x61,													//popad
 	0x8B, 0xFF,                								//mov         edi,edi  index 13
@@ -124,11 +124,26 @@ void installHook()
 	dwRetAddress = dwHookAddress + PATCH_LENGTH;
 	*(PDWORD)&hookShellCode[19] = dwRetAddress;
 
+	//文本地址
+	DWORD textAddress = shellAddress + sizeof(hookShellCode) + 2;
+	*(PDWORD)&hookShellCode[7] = textAddress;
+
 	//copy shell 
 	memcpy((PVOID)shellAddress, hookShellCode, sizeof(hookShellCode));
 
+	printf("============copy one=================");
+
+	//copy text "Inline Hook"
+	TCHAR* pText = (TCHAR*)L"Inline Hook";
+	memcpy((PVOID)textAddress, pText,24);
+
+	printf("============copy two=================");
+
+
 	//安装或者卸载HOOK
 	HookMessageBox(TRUE, shellAddress);
+
+	printf("============copy three=================");
 
 	//test 
 	MessageBox(0, L"111", L"222", 0);
@@ -172,8 +187,8 @@ void unloadHook()
 
 int main(int argc, char* argv[])
 {
-	//installHook();
-	unloadHook();
+	installHook();
+	//unloadHook();
 	return 0;
 }
 
