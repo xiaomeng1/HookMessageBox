@@ -119,6 +119,8 @@ void installHook()
 	//2 测试通信
 //	IoControl(OPER2,&dwInBuffer,IN_BUFFER_MAXLENGTH,szOutBuffer,OUT_BUFFER_MAXLENGTH);
 	IoControl(OPER2, &Inbuff, IN_BUFFER_MAXLENGTH, szOutBuffer, OUT_BUFFER_MAXLENGTH);
+	//printf("============通信完成了=================");
+
 
 	//获取要 HOOK的函数地址
 	dwRetAddress = dwHookAddress + PATCH_LENGTH;

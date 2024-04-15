@@ -51,8 +51,13 @@ void setPageRW(DWORD_PTR address)
 	ULONG PTE = 0xC0000000 + ((dwAddr >> 10) & 0x3FFFFC);  //------------------0x20          
 
 	__asm {
+		//¥•∑¢TLB“≥ Ù–‘ ß–ß
+
 		push eax;
 		push ebx;
+
+		mov eax, dword ptr ds:[address] ;
+		invlpg dword ptr[eax]
 
 		mov eax, [PDE];
 		mov ebx, [eax];
@@ -130,7 +135,7 @@ NTSTATUS IrpDeviceControlProc(PDEVICE_OBJECT pDevOjb, PIRP pIrp) {
 
 		KAPC_STATE  ApcState;
 
-		DbgBreakPoint();
+		//DbgBreakPoint();
 
 		if (process != NULL) {
 			KeStackAttachProcess(process, &ApcState);
